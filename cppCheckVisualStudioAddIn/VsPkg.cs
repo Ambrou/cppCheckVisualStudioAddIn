@@ -77,6 +77,13 @@ namespace Ambre.cppCheckVisualStudioAddIn
             base.Initialize();
             _dte = (EnvDTE.DTE)GetService(typeof(SDTE));
 
+            if (projectCppCheckOutputPane == null)
+            {
+                Window win = _dte.Windows.Item(EnvDTE.Constants.vsWindowKindOutput);
+                OutputWindow OW = (OutputWindow)win.Object;
+                projectCppCheckOutputPane = OW.OutputWindowPanes.Add("[cppcheck] Resultat du projet");
+            }
+
             // Add our command handlers for menu (commands must exist in the .ctc file)
             OleMenuCommandService mcs = GetService(typeof(IMenuCommandService)) as OleMenuCommandService;
             if ( null != mcs )
@@ -143,10 +150,13 @@ namespace Ambre.cppCheckVisualStudioAddIn
         {
             try
             {
+                
                 object[] activeProjects = (object[])_dte.ActiveSolutionProjects;
                 hasSelectedProjects(activeProjects);
                 List<String> files = getFilesFromProjects(activeProjects);
                 // Run analysis on each file
+                cppCheckRunner.run(files, cppCheckConfiguration, projectCppCheckOutputPane);
+                //analyzeFile(files);
                 //runAnalysis(files, currentConfig, true, _projectAnalysisOutputPane);
             }
             catch (System.Exception ex)
@@ -154,6 +164,7 @@ namespace Ambre.cppCheckVisualStudioAddIn
                 System.Windows.Forms.MessageBox.Show(ex.ToString());
             }
         }
+
 
         private void hasSelectedProjects(object[] activeProjects)
         {
@@ -178,17 +189,13 @@ namespace Ambre.cppCheckVisualStudioAddIn
             return fileList;
         }
 
-        private List<string> getFilesFromProject(Project project)
+        private IEnumerable<string> getFilesFromProject(Project project)
         {
-            List<String> fileList = new List<String>();
-            fileList.AddRange(getFilesFromProjectItems(project.ProjectItems));
-            //foreach (ProjectItem projectItem in project.ProjectItems)
-            //{
-            //    fileList.AddRange(getFilesFromItemProject(projectItem));
-            //    //projectItem.ProjectItems
-            //    //fileList.Add(projectItem.Name);
-            //}
-            return fileList;
+            //List<String> fileList = new List<String>();
+            //Configuration currentConfig = project.ConfigurationManager.ActiveConfiguration; ;
+            //fileList.AddRange(getFilesFromProjectItems(project.ProjectItems));
+            //return fileList;
+            return getFilesFromProjectItems(project.ProjectItems);
         }
 
         private IEnumerable<string> getFilesFromProjectItems(ProjectItems projectItems)
@@ -232,6 +239,9 @@ namespace Ambre.cppCheckVisualStudioAddIn
         }
 
         private DTE _dte = null;
+        private CppCheckRunner cppCheckRunner = new CppCheckRunner();
+        private CppCheckConfiguration cppCheckConfiguration = new CppCheckConfiguration();
+        private static OutputWindowPane projectCppCheckOutputPane = null;
 
     }
 }
