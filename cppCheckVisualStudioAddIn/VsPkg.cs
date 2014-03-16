@@ -6,10 +6,14 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.ComponentModel.Design;
+using System.Collections.Generic;
+
 using Microsoft.Win32;
 using Microsoft.VisualStudio.Shell.Interop;
 using Microsoft.VisualStudio.OLE.Interop;
 using Microsoft.VisualStudio.Shell;
+
+using EnvDTE;
 
 namespace Ambre.cppCheckVisualStudioAddIn
 {
@@ -71,6 +75,7 @@ namespace Ambre.cppCheckVisualStudioAddIn
         {
             Trace.WriteLine (string.Format(CultureInfo.CurrentCulture, "Entering Initialize() of: {0}", this.ToString()));
             base.Initialize();
+            _dte = (EnvDTE.DTE)GetService(typeof(SDTE));
 
             // Add our command handlers for menu (commands must exist in the .ctc file)
             OleMenuCommandService mcs = GetService(typeof(IMenuCommandService)) as OleMenuCommandService;
@@ -78,27 +83,27 @@ namespace Ambre.cppCheckVisualStudioAddIn
             {
                 // Create the command for the cppCheck config menu item.
                 CommandID menuCommandID = new CommandID(GuidList.guidcppCheckVisualStudioAddInCmdSet, PkgCmdIDList.cmdidcppCheckConfig);
-                MenuCommand menuItem = new MenuCommand( new EventHandler(MenuItemCppCheckConfigCallback), menuCommandID );
+                MenuCommand menuItem = new MenuCommand( new EventHandler(onCppCheckConfig), menuCommandID );
                 mcs.AddCommand( menuItem );
 
                 // Create the command for the cppCheck parse file menu item.
                 menuCommandID = new CommandID(GuidList.guidcppCheckVisualStudioAddInCmdSet, PkgCmdIDList.cmdidcppCheckParseFile);
-                menuItem = new MenuCommand(new EventHandler(MenuItemCppCheckParseFileCallback), menuCommandID);
+                menuItem = new MenuCommand(new EventHandler(onCppCheckParseFile), menuCommandID);
                 mcs.AddCommand(menuItem);
 
                 // Create the command for the cppCheck parse project menu item.
                 menuCommandID = new CommandID(GuidList.guidcppCheckVisualStudioAddInCmdSet, PkgCmdIDList.cmdidcppCheckParseProject);
-                menuItem = new MenuCommand(new EventHandler(MenuItemCppCheckParseProjectCallback), menuCommandID);
+                menuItem = new MenuCommand(new EventHandler(onCppCheckParseProjects), menuCommandID);
                 mcs.AddCommand(menuItem);
 
                 // Create the command for the cppCheck parse solution menu item.
                 menuCommandID = new CommandID(GuidList.guidcppCheckVisualStudioAddInCmdSet, PkgCmdIDList.cmdidcppCheckParseSolution);
-                menuItem = new MenuCommand(new EventHandler(MenuItemCppCheckParseSolutionCallback), menuCommandID);
+                menuItem = new MenuCommand(new EventHandler(onCppCheckParseSolution), menuCommandID);
                 mcs.AddCommand(menuItem);
 
                 // Create the Command for toolbar button
                 menuCommandID = new CommandID(GuidList.guidcppCheckVisualStudioAddInCmdSet, PkgCmdIDList.cmdidMyZoom);
-                menuItem = new MenuCommand(new EventHandler(MenuItemCppCheckConfigCallback), menuCommandID);
+                menuItem = new MenuCommand(new EventHandler(onCppCheckConfig), menuCommandID);
                 mcs.AddCommand(menuItem);
             }
         }
@@ -109,7 +114,7 @@ namespace Ambre.cppCheckVisualStudioAddIn
         /// See the Initialize method to see how the menu item is associated to this function using
         /// the OleMenuCommandService service and the MenuCommand class.
         /// </summary>
-        private void MenuItemCppCheckConfigCallback(object sender, EventArgs e)
+        private void onCppCheckConfig(object sender, EventArgs e)
         {
             // Show a Message Box to prove we were here
             IVsUIShell uiShell = (IVsUIShell)GetService(typeof(SVsUIShell));
@@ -129,22 +134,104 @@ namespace Ambre.cppCheckVisualStudioAddIn
                        out result);
         }
 
-        private void MenuItemCppCheckParseFileCallback(object sender, EventArgs e)
+        private void onCppCheckParseFile(object sender, EventArgs e)
         {
 
         }
 
-        private void MenuItemCppCheckParseProjectCallback(object sender, EventArgs e)
+        private void onCppCheckParseProjects(object sender, EventArgs e)
+        {
+            try
+            {
+                object[] activeProjects = (object[])_dte.ActiveSolutionProjects;
+                hasSelectedProjects(activeProjects);
+                List<String> files = getFilesFromProjects(activeProjects);
+                // Run analysis on each file
+                //runAnalysis(files, currentConfig, true, _projectAnalysisOutputPane);
+            }
+            catch (System.Exception ex)
+            {
+                System.Windows.Forms.MessageBox.Show(ex.ToString());
+            }
+        }
+
+        private void hasSelectedProjects(object[] activeProjects)
+        {
+            if (activeProjects.Length == 0)
+            {
+                throw new System.Exception("Pas de projet sélectionné dans l'explorateur de solution - rien à vérifier.");
+            }
+        }
+
+        private List<string> getFilesFromProjects(object[] activeProjects)
+        {
+            List<string> fileList = new List<string>();
+            foreach (Project project in activeProjects)
+            {
+                if(isCppProject(project) == false)
+                {
+                    //project.Name;
+                    continue;
+                }
+                fileList.AddRange(getFilesFromProject(project));
+            }
+            return fileList;
+        }
+
+        private List<string> getFilesFromProject(Project project)
+        {
+            List<String> fileList = new List<String>();
+            fileList.AddRange(getFilesFromProjectItems(project.ProjectItems));
+            //foreach (ProjectItem projectItem in project.ProjectItems)
+            //{
+            //    fileList.AddRange(getFilesFromItemProject(projectItem));
+            //    //projectItem.ProjectItems
+            //    //fileList.Add(projectItem.Name);
+            //}
+            return fileList;
+        }
+
+        private IEnumerable<string> getFilesFromProjectItems(ProjectItems projectItems)
+        {
+            List<String> fileList = new List<String>();
+            foreach (ProjectItem projectItem in projectItems)
+            {
+                ProjectItems subProjectItems = projectItem.ProjectItems;
+                if (subProjectItems.Count == 0)
+                {
+                    addFile(fileList, projectItem.Name);
+                }
+                else
+                {
+                    fileList.AddRange(getFilesFromProjectItems(subProjectItems));
+                }
+                
+            }
+            return fileList;
+        }
+
+        private void addFile(List<string> fileList, string fileName)
+        {
+            if (fileName.EndsWith(".cpp") == true)
+            {
+                fileList.Add(fileName);
+            }
+        }
+
+
+        private bool isCppProject(Project project)
+        {
+            Type projectObjectType = project.GetType();
+            string typeName = Microsoft.VisualBasic.Information.TypeName(project.Object);
+            return (typeName == "VCProject");
+        }
+
+        private void onCppCheckParseSolution(object sender, EventArgs e)
         {
 
         }
 
-
-        private void MenuItemCppCheckParseSolutionCallback(object sender, EventArgs e)
-        {
-
-        }
-
+        private DTE _dte = null;
 
     }
 }
